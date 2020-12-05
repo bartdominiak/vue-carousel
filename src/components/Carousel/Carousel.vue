@@ -18,7 +18,7 @@
       :bound-right="boundRight"
     >
       <button
-        v-show="hideArrowsOnBound ? !boundLeft : true"
+        v-if="hideArrowsOnBound ? !boundLeft : true"
         type="button"
         :aria-label="i18n.slideLeft"
         :disabled="boundLeft"
@@ -49,127 +49,83 @@
 </template>
 
 <script>
+import { onMounted, ref, onBeforeUnmount, watch } from 'vue'
 import debounce from 'lodash/debounce'
 import { approximatelyEqual, isClient } from '../../utils'
 
 const SCROLL_DEBOUNCE = 100
 const RESIZE_DEBOUNCE = 410
 
-export default {
-  props: {
-    /**
-     * Disable arrows
-     */
-    hideArrows: {
-      type: Boolean,
-      default: false
-    },
-    /**
-     * Disable arrows on bound
-     */
-    hideArrowsOnBound: {
-      type: Boolean,
-      default: false
-    },
-    /**
-     * Custom tag
-     */
-    tag: {
-      type: String,
-      default: 'ul'
-    },
-    /**
-     * Translations
-     */
-    i18n: {
-      type: Object,
-      default: () => ({ slideLeft: 'Slide left', slideRight: 'Slide right' }),
-      validator: config => {
-        const translations = ['slideLeft', 'slideRight']
-        return translations.every(key => key in config)
-      }
-    }
+const props = {
+  /**
+   * Disable arrows
+   */
+  hideArrows: {
+    type: Boolean,
+    default: false
   },
-  data: () => ({
-    boundLeft: true,
-    boundRight: false,
-    slidesWidth: [],
-    wrapperScrollWidth: 0,
-    wrapperVisibleWidth: 0,
-    currentPage: 0,
-    currentPos: 0,
-    maxPages: 0,
-    step: 1,
-    observer: null,
-    onResizeFn: null,
-    onScrollFn: null
-  }),
-  watch: {
-    currentPage(current, previous) {
+  /**
+   * Disable arrows on bound
+   */
+  hideArrowsOnBound: {
+    type: Boolean,
+    default: false
+  },
+  /**
+   * Custom tag
+   */
+  tag: {
+    type: String,
+    default: 'ul'
+  },
+  /**
+   * Translations
+   */
+  i18n: {
+    type: Object,
+    default: () => ({ slideLeft: 'Slide left', slideRight: 'Slide right' }),
+    validator: config => {
+      const translations = ['slideLeft', 'slideRight']
+      return translations.every(key => key in config)
+    }
+  }
+}
+
+export default {
+  name: 'Carousel',
+  props,
+  setup(_, { emit }) {
+    const vsWrapper = ref(null)
+    const boundLeft = ref(true)
+    const boundRight = ref(false)
+    const slidesWidth = ref([])
+    const wrapperScrollWidth = ref(0)
+    const wrapperVisibleWidth = ref(0)
+    const currentPage = ref(0)
+    const currentPos = ref(0)
+    const maxPages = ref(0)
+    const onResizeFn = ref(null)
+    const onScrollFn = ref(null)
+
+    // Watchers
+    watch(currentPage, (current, previous) => {
       if (current !== previous) {
         /**
          * Page changed
          * @event page
          * @type {Event}
          */
-        this.$emit('page', { current, previous })
+        emit('page', { current, previous })
       }
-    }
-  },
-  mounted() {
-    this.calcOnInit()
+    })
 
-    if (isClient) {
-      // Assign to new variable and keep reference for removeEventListener (Avoid Memory Leaks)
-      this.onResizeFn = debounce(this.calcOnInit, RESIZE_DEBOUNCE)
-      this.onScrollFn = debounce(this.calcOnScroll, SCROLL_DEBOUNCE)
-
-      // MutationObserver
-      this.attachMutationObserver()
-
-      // Events
-      this.$refs.vsWrapper.addEventListener('scroll', this.onScrollFn)
-      window.addEventListener('resize', this.onResizeFn, false)
-    }
-  },
-  beforeDestroy() {
-    if (isClient) {
-      // MutationObserver
-      this.observer.disconnect()
-
-      // Events
-      this.$refs.vsWrapper.removeEventListener('scroll', this.onScrollFn)
-      window.removeEventListener('resize', this.onResizeFn, false)
-    }
-  },
-  methods: {
-    calcOnInit() {
-      if (!this.$refs.vsWrapper) {
-        return
-      }
-
-      this.calcWrapperWidth()
-      this.calcSlidesWidth()
-      this.calcCurrentPosition()
-      this.calcCurrentPage()
-      this.calcBounds()
-      this.calcMaxPages()
-    },
-    calcOnScroll() {
-      if (!this.$refs.vsWrapper) {
-        return
-      }
-
-      this.calcCurrentPosition()
-      this.calcCurrentPage()
-      this.calcBounds()
-    },
-    calcBounds() {
+    // Calculations
+    const calcBounds = () => {
       // Find the closest point, with 5px approximate.
-      const isBoundLeft = approximatelyEqual(this.currentPos, 0, 5)
+      const isBoundLeft = approximatelyEqual(currentPos.value, 0, 5)
       const isBoundRight = approximatelyEqual(
-        this.wrapperScrollWidth - this.wrapperVisibleWidth,
-        this.currentPos,
+        wrapperScrollWidth.value - wrapperVisibleWidth.value,
+        currentPos.value,
         5
       )
 
@@ -179,10 +135,10 @@ export default {
          * @event bound-left
          * @type {Event}
          */
-        this.$emit('bound-left', true)
-        this.boundLeft = true
+        emit('bound-left', true)
+        boundLeft.value = true
       } else {
-        this.boundLeft = false
+        boundLeft.value = false
       }
 
       if (isBoundRight) {
@@ -191,80 +147,103 @@ export default {
          * @event bound-right
          * @type {Event}
          */
-        this.$emit('bound-right', true)
-        this.boundRight = true
+        emit('bound-right', true)
+        boundRight.value = true
       } else {
-        this.boundRight = false
+        boundRight.value = false
       }
-    },
-    calcWrapperWidth() {
-      this.wrapperScrollWidth = this.$refs.vsWrapper.scrollWidth
-      this.wrapperVisibleWidth = this.$refs.vsWrapper.offsetWidth
-    },
-    calcSlidesWidth() {
-      const childNodes = [ ...this.$refs.vsWrapper.children ]
+    }
+    const calcWrapperWidth = () => {
+      wrapperScrollWidth.value = vsWrapper.value.scrollWidth
+      wrapperVisibleWidth.value = vsWrapper.value.offsetWidth
+    }
+    const calcSlidesWidth = () => {
+      const childNodes = [ ...vsWrapper.value.children ]
 
-      this.slidesWidth = childNodes.map(node => ({
+      slidesWidth.value = childNodes.map(node => ({
         offsetLeft: node.offsetLeft,
         width: node.offsetWidth
       }))
-    },
-    calcCurrentPage() {
-      const getCurrentPage = this.slidesWidth.findIndex(slide => {
-        // Find the closest point, with 5px approximate.
-        return approximatelyEqual(slide.offsetLeft, this.currentPos, 5)
-      })
-
-      if (getCurrentPage !== -1 && getCurrentPage !== -2) {
-        this.currentPage = getCurrentPage || 0
-      }
-    },
-    calcCurrentPosition() {
-      this.currentPos = this.$refs.vsWrapper.scrollLeft || 0
-    },
-    calcMaxPages() {
-      const maxPos = this.wrapperScrollWidth - this.wrapperVisibleWidth
-      this.maxPages = this.slidesWidth.findIndex(({ offsetLeft }) => offsetLeft > maxPos) - 1
-    },
-    calcNextWidth(direction) {
-      const nextSlideIndex = direction > 0 ? this.currentPage : this.currentPage + direction
-      const width = this.slidesWidth[nextSlideIndex].width || 0
+    }
+    const calcNextWidth = direction => {
+      const nextSlideIndex = direction > 0 ? currentPage.value : currentPage.value + direction
+      const width = slidesWidth.value[nextSlideIndex].width || 0
 
       if (!width) {
         return
       }
 
       return width * direction
-    },
-    attachMutationObserver() {
-      this.observer = new MutationObserver(() => {
-        this.calcOnInit()
+    }
+    const calcCurrentPage = () => {
+      const getCurrentPage = slidesWidth.value.findIndex(slide => {
+        // Find the closest point, with 5px approximate.
+        return approximatelyEqual(slide.offsetLeft, currentPos.value, 5)
       })
 
-      this.observer.observe(
-        this.$refs.vsWrapper,
-        { attributes: true, childList: true, characterData: true, subtree: true }
-      )
-    },
-    changeSlide(direction) {
-      const leftBoundLimit = direction === -1 && this.boundLeft
-      const rightBoundLimit = direction === 1 && this.boundRight
-
-      if (leftBoundLimit || rightBoundLimit) {
-        return
+      if (getCurrentPage !== -1 && getCurrentPage !== -2) {
+        currentPage.value = getCurrentPage || 0
       }
-
-      const nextSlideWidth = this.calcNextWidth(direction)
-
-      if (!nextSlideWidth) {
-        return
-      }
-
-      this.scrollTo(nextSlideWidth)
-    },
-    scrollTo(x = 0) {
-      this.$refs.vsWrapper.scrollBy({ left: x, behavior: 'smooth' })
     }
+    const calcCurrentPosition = () => {
+      currentPos.value = vsWrapper.value.scrollLeft || 0
+    }
+    const calcMaxPages = () => {
+      const maxPos = wrapperScrollWidth.value - wrapperVisibleWidth.value
+      maxPages.value = slidesWidth.value.findIndex(({ offsetLeft }) => offsetLeft > maxPos) - 1
+    }
+    const calcOnInit = () => {
+      if (!vsWrapper.value) {
+        return
+      }
+
+      calcWrapperWidth()
+      calcSlidesWidth()
+      calcCurrentPosition()
+      calcCurrentPage()
+      calcBounds()
+      calcMaxPages()
+    }
+    const calcOnScroll = () => {
+      if (!vsWrapper.value) {
+        return
+      }
+
+      calcCurrentPosition()
+      calcCurrentPage()
+      calcBounds()
+    }
+
+    const changeSlide = direction => {
+      const nextSlideWidth = calcNextWidth(direction)
+
+      if (nextSlideWidth) {
+        vsWrapper.value.scrollBy({ left: nextSlideWidth, behavior: 'smooth' })
+      }
+    }
+
+    onMounted(() => {
+      calcOnInit()
+
+      if (isClient) {
+        // Assign to new variable and keep reference for removeEventListener (Avoid Memory Leaks)
+        onScrollFn.value = debounce(calcOnScroll, SCROLL_DEBOUNCE)
+        onResizeFn.value = debounce(calcOnInit, RESIZE_DEBOUNCE)
+
+        // Events
+        vsWrapper.value.addEventListener('scroll', onScrollFn.value)
+        window.addEventListener('resize', onResizeFn.value)
+      }
+    })
+    onBeforeUnmount(() => {
+      if (isClient) {
+        // Events
+        vsWrapper.value.removeEventListener('scroll', onScrollFn.value)
+        window.removeEventListener('resize', onResizeFn.value)
+      }
+    })
+
+    return { boundLeft, boundRight, changeSlide, vsWrapper }
   }
 }
 </script>

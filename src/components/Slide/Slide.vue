@@ -11,6 +11,7 @@
 
 <script>
 export default {
+  name: 'Slide',
   props: {
     /**
      * Custom tag
